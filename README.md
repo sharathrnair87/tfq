@@ -29,6 +29,7 @@
     run               Manage TFE runs
     tag               Query TFE tags
     team              Manage TFE teams
+    team-access       Query TFE workspace team access
     variable          Manage TFE workspace variables
     workspace         Manage TFE workspaces
 
@@ -70,6 +71,7 @@ Available Commands:
   run          Manage TFE runs
   tag          Query TFE tags
   team         Manage TFE teams
+  team-access  Query TFE workspace team access
   variable     Manage TFE workspace variables
   workspace    Manage TFE workspaces
 
@@ -664,6 +666,47 @@ Use "tfectl [command] --help" for more information about a command.
 			"instance_count": 1
 		}
 	]
+  ```
+</details>
+
+### Team Access
+<details>
+    <summary>Team Access Operations</summary>
+
+* Query TFE workspace team access
+
+* #### List
+  * List workspaces that a team has access to, and the permissions associated with it
+  ```bash
+    $ tfectl team-access list --team-id settings-team-id
+    [
+      {
+        "workspace_id": "ws-GqR7zN2m5K8L4pX1",
+        "workspace_name": "prod-infra-core",
+        "attributes": {
+          "access": "read",
+          "runs": "read",
+          "variables": "read",
+          "state-versions": "read",
+          "sentinel-mocks": "none",
+          "workspace-locking": true,
+          "run-tasks": false
+        }
+      },
+      {
+        "workspace_id": "ws-X9vB3mN7L5kR2pQ0",
+        "workspace_name": "staging-app-web",
+        "attributes": {
+          "access": "write",
+          "runs": "write",
+          "variables": "write",
+          "state-versions": "write",
+          "sentinel-mocks": "read",
+          "workspace-locking": true,
+          "run-tasks": true
+        }
+      }
+    ]
   ```
 </details>
 

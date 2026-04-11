@@ -27,6 +27,11 @@ type WorkspaceDetail struct {
 	AverageRunDuration     string `json:"average_run_duration"`
 }
 
+type WorkspaceTeamAccess struct {
+	Workspace
+	TeamAccess
+}
+
 type Workspace struct {
 	Name             string   `json:"name"`
 	ID               string   `json:"id"`

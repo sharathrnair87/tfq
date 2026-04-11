@@ -6,26 +6,26 @@ package cmd
 import (
 	"bytes"
 	"fmt"
+	"regexp"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
-	"regexp"
-	"strings"
 )
 
-func TestRunListCmd(t *testing.T) {
+func TestTeamAccessListCmd(t *testing.T) {
 	buf := new(bytes.Buffer)
 
-	wr := rootCmd
-	wc := workspaceCmd
-	wlc := workspaceListCmd
+	tr := rootCmd
+	tc := teamCmd
+	tlc := teamListCmd
 
-	wr.AddCommand(wc, wlc)
-	wr.SetOut(buf)
-	wr.SetErr(buf)
-	wr.SetArgs([]string{"workspace", "list", "--query", ".[0].id"})
+	tr.AddCommand(tc, tlc)
+	tr.SetOut(buf)
+	tr.SetErr(buf)
+	tr.SetArgs([]string{"team", "list", "--query", ".[0].id"})
 
-	err := wr.Execute()
+	err := tr.Execute()
 	if err != nil {
 		t.Fatalf("Error executing command: %v", err)
 	}
@@ -35,25 +35,25 @@ func TestRunListCmd(t *testing.T) {
 	re := regexp.MustCompile(`"([^"]*)"`)
 	matches := re.FindStringSubmatch(out)
 
-	workspaceId := "NA"
+	teamId := "NA"
 
 	if len(matches) >= 2 {
-		workspaceId = matches[1]
+		teamId = matches[1]
 	}
 
-	if workspaceId != "NA" {
-		rr := rootCmd
-		rc := runCmd
-		rlc := runListCmd
+	if teamId != "NA" {
+		tar := rootCmd
+		ta := teamAccessCmd
+		tla := teamAccessListCmd
 
-		rr.AddCommand(rc, rlc)
+		tar.AddCommand(ta, tla)
 
-		rr.SetArgs([]string{"run", "list", "--workspace-id", workspaceId})
+		tar.SetArgs([]string{"team-access", "list", "--team-id", teamId})
 
 		rbuf := bytes.NewBufferString("")
-		rr.SetOut(rbuf)
+		tar.SetOut(rbuf)
 
-		err := rr.Execute()
+		err := tar.Execute()
 		fmt.Print(rbuf.String())
 
 		if err != nil {
