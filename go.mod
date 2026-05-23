@@ -1,6 +1,6 @@
 module github.com/sharathrnair87/tfq
 
-go 1.24.0
+go 1.24
 
 require (
 	github.com/hashicorp/go-tfe v1.93.0
