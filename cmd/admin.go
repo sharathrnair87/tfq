@@ -13,6 +13,14 @@ import (
 	"github.com/spf13/cobra"
 )
 
+//go:generate moq -out admin_moq_test.go . AdminRunsAPI
+
+// AdminRunsAPI defines the subset of tfe.AdminRuns methods used by this package.
+type AdminRunsAPI interface {
+	List(ctx context.Context, options *tfe.AdminRunsListOptions) (*tfe.AdminRunsList, error)
+	ForceCancel(ctx context.Context, runID string, options tfe.AdminRunForceCancelOptions) error
+}
+
 var adminCmd = &cobra.Command{
 	Use:   "admin",
 	Short: "Manage TFE admin operations",
@@ -40,7 +48,7 @@ var adminRunListCmd = &cobra.Command{
 		// struct Run defined in run.go
 		var adminRunList []Run
 
-		runs, err := listAdminRuns(client, filter)
+		runs, err := listAdminRuns(client.Admin.Runs, filter)
 		check(err)
 
 		for _, run := range runs {
@@ -48,7 +56,7 @@ var adminRunListCmd = &cobra.Command{
 
 			log.Debugf("Processing run %s", run.ID)
 
-			workspaceName, _ := getWorkspaceNameByID(client, organization, run.Workspace.ID)
+			workspaceName, _ := getWorkspaceNameByID(client.Workspaces, organization, run.Workspace.ID)
 			entry := fmt.Sprintf(`{
         "id":"%s",
         "workspace_id":"%s",
@@ -91,13 +99,13 @@ var adminRunForceCancelCmd = &cobra.Command{
 			var tmpRun Run
 
 			// get workspaceID from run
-			run, _ := getRun(client, id)
+			run, _ := getRun(client.Runs, id)
 			workspaceID := run.Workspace.ID
 
 			// get workspaceName from run
-			workspaceName, _ := getWorkspaceNameByID(client, organization, workspaceID)
+			workspaceName, _ := getWorkspaceNameByID(client.Workspaces, organization, workspaceID)
 
-			adminForceCancelRun(client, id)
+			adminForceCancelRun(client.Admin.Runs, id)
 
 			entry := fmt.Sprintf(`{
         "id":"%s",
@@ -132,7 +140,7 @@ func init() {
 	adminRunForceCancelCmd.Flags().String("ids", "", "Force cancel comma-separated string of runIDs")
 }
 
-func listAdminRuns(client *tfe.Client, filter string) ([]*tfe.AdminRun, error) {
+func listAdminRuns(adminRuns AdminRunsAPI, filter string) ([]*tfe.AdminRun, error) {
 	results := []*tfe.AdminRun{}
 	currentPage := 1
 
@@ -145,7 +153,7 @@ func listAdminRuns(client *tfe.Client, filter string) ([]*tfe.AdminRun, error) {
 			},
 			RunStatus: filter,
 		}
-		r, err := client.Admin.Runs.List(context.Background(), options)
+		r, err := adminRuns.List(context.Background(), options)
 
 		if err != nil {
 			return nil, err
@@ -162,13 +170,13 @@ func listAdminRuns(client *tfe.Client, filter string) ([]*tfe.AdminRun, error) {
 	return results, nil
 }
 
-func adminForceCancelRun(client *tfe.Client, runID string) {
+func adminForceCancelRun(adminRuns AdminRunsAPI, runID string) {
 	comment := fmt.Sprintf("Force-cancel run as Admin %s", runID)
 
 	options := tfe.AdminRunForceCancelOptions{
 		Comment: &comment,
 	}
 
-	err := client.Admin.Runs.ForceCancel(context.Background(), runID, options)
+	err := adminRuns.ForceCancel(context.Background(), runID, options)
 	check(err)
 }

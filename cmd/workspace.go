@@ -17,6 +17,21 @@ import (
 	"github.com/spf13/cobra"
 )
 
+//go:generate moq -out workspace_moq_test.go . WorkspacesAPI StateVersionsAPI
+
+// WorkspacesAPI defines the subset of tfe.Workspaces methods used by this package.
+type WorkspacesAPI interface {
+	List(ctx context.Context, organization string, options *tfe.WorkspaceListOptions) (*tfe.WorkspaceList, error)
+	ReadByID(ctx context.Context, workspaceID string) (*tfe.Workspace, error)
+	Lock(ctx context.Context, workspaceID string, options tfe.WorkspaceLockOptions) (*tfe.Workspace, error)
+	Unlock(ctx context.Context, workspaceID string) (*tfe.Workspace, error)
+}
+
+// StateVersionsAPI defines the subset of tfe.StateVersions methods used by this package.
+type StateVersionsAPI interface {
+	ReadCurrent(ctx context.Context, workspaceID string) (*tfe.StateVersion, error)
+}
+
 // WorkspaceDetail for -detail flag with list
 type WorkspaceDetail struct {
 	Workspace
@@ -71,7 +86,7 @@ var workspaceGetCmd = &cobra.Command{
 
 		// Get workspace
 		for _, id := range idList {
-			workspace, err := getWorkspace(client, organization, id)
+			workspace, err := getWorkspace(client.Workspaces, client.Runs, client.StateVersions, organization, id)
 			check(err)
 
 			workspaceList = append(workspaceList, workspace)
@@ -105,7 +120,7 @@ var workspaceListCmd = &cobra.Command{
 		filter, _ := cmd.Flags().GetString("filter")
 
 		// List workspaces.
-		workspaces, err := listWorkspaces(client, organization, filter)
+		workspaces, err := listWorkspaces(client.Workspaces, organization, filter)
 		check(err)
 
 		var workspaceJson []byte
@@ -194,7 +209,7 @@ var workspaceListCmd = &cobra.Command{
 
 					go func(id string, name string) {
 						log.Debugf("Processing workspace: %s - %s", name, id)
-						tmpWorkspace, err := getWorkspace(client, organization, id)
+						tmpWorkspace, err := getWorkspace(client.Workspaces, client.Runs, client.StateVersions, organization, id)
 						check(err)
 						ch <- tmpWorkspace
 
@@ -234,7 +249,7 @@ var workspaceLockAllCmd = &cobra.Command{
 
 		var lockedWorkspaceList []WorkspaceLock
 
-		lockedWorkspaceList, _ = lockAllWorkspaces(client, organization, &reason)
+		lockedWorkspaceList, _ = lockAllWorkspaces(client.Workspaces, organization, &reason)
 
 		lockedWorkspaceListJson, _ := json.MarshalIndent(lockedWorkspaceList, "", " ")
 		outputData(cmd, lockedWorkspaceListJson)
@@ -272,7 +287,7 @@ var workspaceLockCmd = &cobra.Command{
 
 		if filter != "" {
 			// get workspace Ids from filter
-			workspaces, err := listWorkspaces(client, organization, filter)
+			workspaces, err := listWorkspaces(client.Workspaces, organization, filter)
 			check(err)
 
 			for _, workspace := range workspaces {
@@ -286,7 +301,7 @@ var workspaceLockCmd = &cobra.Command{
 		if ids != "" {
 			workspaceIdList := strings.Split(ids, ",")
 			for _, id := range workspaceIdList {
-				workspaceName, err := getWorkspaceNameByID(client, organization, id)
+				workspaceName, err := getWorkspaceNameByID(client.Workspaces, organization, id)
 				check(err)
 				tmpWorkspace.WorkspaceID = id
 				tmpWorkspace.WorkspaceName = workspaceName
@@ -298,7 +313,7 @@ var workspaceLockCmd = &cobra.Command{
 		for _, wrk := range workspaceList {
 			var entry string
 
-			workspace, err := lockWorkspace(client, organization, wrk.WorkspaceID, &reason)
+			workspace, err := lockWorkspace(client.Workspaces, organization, wrk.WorkspaceID, &reason)
 			if err != nil {
 				entry = fmt.Sprintf(`{
           "name":"%s",
@@ -336,7 +351,7 @@ var workspaceUnlockAllCmd = &cobra.Command{
 
 		var unlockedWorkspaceList []WorkspaceLock
 
-		unlockedWorkspaceList, _ = unlockAllWorkspaces(client, organization)
+		unlockedWorkspaceList, _ = unlockAllWorkspaces(client.Workspaces, organization)
 
 		unlockedWorkspaceListJson, _ := json.MarshalIndent(unlockedWorkspaceList, "", "  ")
 		outputData(cmd, unlockedWorkspaceListJson)
@@ -372,7 +387,7 @@ var workspaceUnlockCmd = &cobra.Command{
 
 		if filter != "" {
 			// get workspace Ids from filter
-			workspaces, err := listWorkspaces(client, organization, filter)
+			workspaces, err := listWorkspaces(client.Workspaces, organization, filter)
 			check(err)
 
 			for _, workspace := range workspaces {
@@ -386,7 +401,7 @@ var workspaceUnlockCmd = &cobra.Command{
 		if ids != "" {
 			workspaceIdList := strings.Split(ids, ",")
 			for _, id := range workspaceIdList {
-				workspaceName, err := getWorkspaceNameByID(client, organization, id)
+				workspaceName, err := getWorkspaceNameByID(client.Workspaces, organization, id)
 				check(err)
 				tmpWorkspace.WorkspaceID = id
 				tmpWorkspace.WorkspaceName = workspaceName
@@ -398,7 +413,7 @@ var workspaceUnlockCmd = &cobra.Command{
 		for _, wrk := range workspaceList {
 			var entry string
 
-			workspace, err := unlockWorkspace(client, organization, wrk.WorkspaceID)
+			workspace, err := unlockWorkspace(client.Workspaces, organization, wrk.WorkspaceID)
 			if err != nil {
 				entry = fmt.Sprintf(`{
           "name":"%s",
@@ -459,7 +474,7 @@ func init() {
 	workspaceCmd.AddCommand(workspaceUnlockAllCmd)
 }
 
-func listWorkspaces(client *tfe.Client, organization string, filter string) ([]*tfe.Workspace, error) {
+func listWorkspaces(workspaces WorkspacesAPI, organization string, filter string) ([]*tfe.Workspace, error) {
 	results := []*tfe.Workspace{}
 	currentPage := 1
 	listOptions := &tfe.WorkspaceListOptions{
@@ -486,7 +501,7 @@ func listWorkspaces(client *tfe.Client, organization string, filter string) ([]*
 
 		options := listOptions
 
-		w, err := client.Workspaces.List(context.Background(), organization, options)
+		w, err := workspaces.List(context.Background(), organization, options)
 		if err != nil {
 			return nil, err
 		}
@@ -504,20 +519,20 @@ func listWorkspaces(client *tfe.Client, organization string, filter string) ([]*
 	return results, nil
 }
 
-func getWorkspaceNameByID(client *tfe.Client, organization string, workspaceID string) (string, error) {
-	workspaceRead, err := client.Workspaces.ReadByID(context.Background(), workspaceID)
+func getWorkspaceNameByID(workspaces WorkspacesAPI, organization string, workspaceID string) (string, error) {
+	workspaceRead, err := workspaces.ReadByID(context.Background(), workspaceID)
 	check(err)
 
 	return workspaceRead.Name, nil
 }
 
-func getWorkspace(client *tfe.Client, organization string, workspaceID string) (WorkspaceDetail, error) {
+func getWorkspace(workspaces WorkspacesAPI, runs RunsAPI, stateVersions StateVersionsAPI, organization string, workspaceID string) (WorkspaceDetail, error) {
 	result := WorkspaceDetail{}
 
-	workspaceRead, err := client.Workspaces.ReadByID(context.Background(), workspaceID)
+	workspaceRead, err := workspaces.ReadByID(context.Background(), workspaceID)
 	check(err)
 
-	workspaceDetails, err := getWorkspaceDetails(client, organization, workspaceID)
+	workspaceDetails, err := getWorkspaceDetails(runs, stateVersions, organization, workspaceID)
 	check(err)
 
 	result.ID = workspaceRead.ID
@@ -536,10 +551,10 @@ func getWorkspace(client *tfe.Client, organization string, workspaceID string) (
 	return result, nil
 }
 
-func getWorkspaceDetails(client *tfe.Client, organization string, workspaceID string) (WorkspaceDetail, error) {
+func getWorkspaceDetails(runs RunsAPI, stateVersions StateVersionsAPI, organization string, workspaceID string) (WorkspaceDetail, error) {
 	result := WorkspaceDetail{}
 
-	rList, err := listRuns(client, workspaceID, "applied,planned_and_finished", "", false)
+	rList, err := listRuns(runs, workspaceID, "applied,planned_and_finished", "", false)
 	check(err)
 
 	lastRemoteRunDaysAgo := "NA"
@@ -569,7 +584,7 @@ func getWorkspaceDetails(client *tfe.Client, organization string, workspaceID st
 
 	// Determine when current state-version was created
 	lastStateUpdateDaysAgo := "NA"
-	stateVersion, err := client.StateVersions.ReadCurrent(context.Background(), workspaceID)
+	stateVersion, err := stateVersions.ReadCurrent(context.Background(), workspaceID)
 	if err != nil {
 		// Verify workspace has states
 		if !strings.Contains(err.Error(), "resource not found") {
@@ -587,14 +602,14 @@ func getWorkspaceDetails(client *tfe.Client, organization string, workspaceID st
 	return result, nil
 }
 
-func lockAllWorkspaces(client *tfe.Client, organization string, lockReason *string) ([]WorkspaceLock, error) {
+func lockAllWorkspaces(workspaces WorkspacesAPI, organization string, lockReason *string) ([]WorkspaceLock, error) {
 	result := []WorkspaceLock{}
 	wg := sync.WaitGroup{}
 	var lockedErr error
 	var lockedWorkspace WorkspaceLock
 
 	// Get IDs of all workspaces
-	allWorkspaces, err := listWorkspaces(client, organization, "")
+	allWorkspaces, err := listWorkspaces(workspaces, organization, "")
 	check(err)
 
 	ch := make(chan WorkspaceLock, len(allWorkspaces))
@@ -607,7 +622,7 @@ func lockAllWorkspaces(client *tfe.Client, organization string, lockReason *stri
 		locked := false
 
 		go func(id string, name string) {
-			tmpWorkspace, lockedErr := lockWorkspace(client, organization, id, lockReason)
+			tmpWorkspace, lockedErr := lockWorkspace(workspaces, organization, id, lockReason)
 			if lockedErr != nil && strings.Contains(lockedErr.Error(), "workspace already locked") {
 				// workspace already locked
 				locked = true
@@ -637,10 +652,10 @@ func lockAllWorkspaces(client *tfe.Client, organization string, lockReason *stri
 
 }
 
-func lockWorkspace(client *tfe.Client, organization string, workspaceID string, lockReason *string) (*tfe.Workspace, error) {
+func lockWorkspace(workspaces WorkspacesAPI, organization string, workspaceID string, lockReason *string) (*tfe.Workspace, error) {
 	var lockedErr error
 
-	result, err := client.Workspaces.Lock(context.Background(), workspaceID, tfe.WorkspaceLockOptions{
+	result, err := workspaces.Lock(context.Background(), workspaceID, tfe.WorkspaceLockOptions{
 		Reason: lockReason,
 	})
 
@@ -654,14 +669,14 @@ func lockWorkspace(client *tfe.Client, organization string, workspaceID string, 
 	return result, lockedErr
 }
 
-func unlockAllWorkspaces(client *tfe.Client, organization string) ([]WorkspaceLock, error) {
+func unlockAllWorkspaces(workspaces WorkspacesAPI, organization string) ([]WorkspaceLock, error) {
 	result := []WorkspaceLock{}
 	wg := sync.WaitGroup{}
 	var unlockedErr error
 	var unlockedWorkspace WorkspaceLock
 
 	// Get IDs of all workspaces
-	allWorkspaces, err := listWorkspaces(client, organization, "")
+	allWorkspaces, err := listWorkspaces(workspaces, organization, "")
 	check(err)
 
 	ch := make(chan WorkspaceLock, len(allWorkspaces))
@@ -675,7 +690,7 @@ func unlockAllWorkspaces(client *tfe.Client, organization string) ([]WorkspaceLo
 
 		go func(id string, name string) {
 			log.Debugf("Unlocking workspace: %s", id)
-			tmpWorkspace, unlockedErr := unlockWorkspace(client, organization, id)
+			tmpWorkspace, unlockedErr := unlockWorkspace(workspaces, organization, id)
 			if unlockedErr != nil && strings.Contains(unlockedErr.Error(), "workspace already unlocked") {
 				// workspace already unlocked
 				locked = false
@@ -705,10 +720,10 @@ func unlockAllWorkspaces(client *tfe.Client, organization string) ([]WorkspaceLo
 
 }
 
-func unlockWorkspace(client *tfe.Client, organization string, workspaceID string) (*tfe.Workspace, error) {
+func unlockWorkspace(workspaces WorkspacesAPI, organization string, workspaceID string) (*tfe.Workspace, error) {
 	var unlockedErr error
 
-	result, err := client.Workspaces.Unlock(context.Background(), workspaceID)
+	result, err := workspaces.Unlock(context.Background(), workspaceID)
 
 	if err != nil && strings.Contains(err.Error(), "workspace already unlocked") {
 		unlockedErr = err

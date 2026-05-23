@@ -12,7 +12,15 @@ import (
 	"github.com/spf13/cobra"
 )
 
-type PolicyCheckResult struct {
+//go:generate moq -out policy_check_moq_test.go . PolicyChecksAPI
+
+// PolicyChecksAPI defines the subset of tfe.PolicyChecks methods used by this package.
+type PolicyChecksAPI interface {
+	List(ctx context.Context, runID string, options *tfe.PolicyCheckListOptions) (*tfe.PolicyCheckList, error)
+	Override(ctx context.Context, policyCheckID string) (*tfe.PolicyCheck, error)
+}
+
+type LocalPolicyCheckResult struct {
 	AdvisoryFailed int  `json:"advisory_failed"`
 	HardFailed     int  `json:"hard_failed"`
 	Passed         int  `json:"passed"`
@@ -23,10 +31,10 @@ type PolicyCheckResult struct {
 }
 
 type PolicyCheck struct {
-	ID     string            `json:"id"`
-	Result PolicyCheckResult `json:"result"`
-	Status tfe.PolicyStatus  `json:"status"`
-	Scope  tfe.PolicyScope   `json:"scope"`
+	ID     string                 `json:"id"`
+	Result LocalPolicyCheckResult `json:"result"`
+	Status tfe.PolicyStatus       `json:"status"`
+	Scope  tfe.PolicyScope        `json:"scope"`
 }
 
 var policyCheckCmd = &cobra.Command{
@@ -48,7 +56,7 @@ var policyCheckShowCmd = &cobra.Command{
 
 		var policyCheckJson []byte
 
-		policyCheck, _ := showPolicyChecks(client, runId)
+		policyCheck, _ := showPolicyChecks(client.PolicyChecks, runId)
 
 		policyCheckJson, _ = json.MarshalIndent(policyCheck, "", "  ")
 		outputData(cmd, policyCheckJson)
@@ -68,7 +76,7 @@ var policyCheckOverrideCmd = &cobra.Command{
 
 		var policyCheckJson []byte
 
-		policyCheck, _ := overridePolicyChecks(client, policyCheckId)
+		policyCheck, _ := overridePolicyChecks(client.PolicyChecks, policyCheckId)
 
 		policyCheckJson, _ = json.MarshalIndent(policyCheck, "", "  ")
 		outputData(cmd, policyCheckJson)
@@ -89,12 +97,12 @@ func init() {
 	policyCheckOverrideCmd.Flags().String("policy-check-id", "", "ID of the policy-check to override")
 }
 
-func showPolicyChecks(client *tfe.Client, runID string) (PolicyCheck, error) {
+func showPolicyChecks(policyChecks PolicyChecksAPI, runID string) (PolicyCheck, error) {
 	result := PolicyCheck{}
 	log.Debugf("Retrieving policy checks for run: %s\n", runID)
 	options := &tfe.PolicyCheckListOptions{}
 
-	pc, err := client.PolicyChecks.List(context.Background(), runID, options)
+	pc, err := policyChecks.List(context.Background(), runID, options)
 	check(err)
 
 	polchk := pc.Items[0]
@@ -113,11 +121,11 @@ func showPolicyChecks(client *tfe.Client, runID string) (PolicyCheck, error) {
 	return result, nil
 }
 
-func overridePolicyChecks(client *tfe.Client, policyCheckID string) (PolicyCheck, error) {
+func overridePolicyChecks(policyChecks PolicyChecksAPI, policyCheckID string) (PolicyCheck, error) {
 	result := PolicyCheck{}
 	log.Debugf("Overriding policy check: %s\n", policyCheckID)
 
-	polchk, err := client.PolicyChecks.Override(context.Background(), policyCheckID)
+	polchk, err := policyChecks.Override(context.Background(), policyCheckID)
 	check(err)
 
 	result.ID = polchk.ID

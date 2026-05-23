@@ -11,6 +11,13 @@ import (
 	"github.com/spf13/cobra"
 )
 
+//go:generate moq -out registry_modules_moq_test.go . RegistryModulesAPI
+
+// RegistryModulesAPI defines the subset of tfe.RegistryModules methods used by this package.
+type RegistryModulesAPI interface {
+	List(ctx context.Context, organization string, options *tfe.RegistryModuleListOptions) (*tfe.RegistryModuleList, error)
+}
+
 type RegistryModule struct {
 	ID                  string                   `json:"id"`
 	Name                string                   `json:"name"`
@@ -39,7 +46,7 @@ var registryModuleListCmd = &cobra.Command{
 		organization, client, err := resources.Setup(cmd)
 		check(err)
 
-		moduleList, err := listPrivateModules(client, organization)
+		moduleList, err := listPrivateModules(client.RegistryModules, organization)
 		check(err)
 
 		moduleListJson, _ := json.MarshalIndent(moduleList, "", "  ")
@@ -53,9 +60,8 @@ func init() {
 	registryModuleCmd.AddCommand(registryModuleListCmd)
 }
 
-func listPrivateModules(client *tfe.Client, organization string) ([]RegistryModule, error) {
+func listPrivateModules(registry RegistryModulesAPI, organization string) ([]RegistryModule, error) {
 	results := []RegistryModule{}
-	result := RegistryModule{}
 	currentPage := 1
 
 	for {
@@ -67,12 +73,13 @@ func listPrivateModules(client *tfe.Client, organization string) ([]RegistryModu
 			},
 		}
 
-		rms, err := client.RegistryModules.List(context.Background(), organization, options)
+		rms, err := registry.List(context.Background(), organization, options)
 		if err != nil {
 			return nil, err
 		}
 
 		for _, rmItem := range rms.Items {
+			result := RegistryModule{}
 			log.Debugf("Processing Module %s", rmItem.Name)
 			result.RegistryName = rmItem.RegistryName
 			result.ID = rmItem.ID

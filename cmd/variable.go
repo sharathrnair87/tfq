@@ -14,6 +14,17 @@ import (
 	"github.com/spf13/cobra"
 )
 
+//go:generate moq -out variable_moq_test.go . VariablesAPI
+
+// VariablesAPI defines the subset of tfe.Variables methods used by this package.
+type VariablesAPI interface {
+	List(ctx context.Context, workspaceID string, options *tfe.VariableListOptions) (*tfe.VariableList, error)
+	Read(ctx context.Context, workspaceID string, variableID string) (*tfe.Variable, error)
+	Create(ctx context.Context, workspaceID string, options tfe.VariableCreateOptions) (*tfe.Variable, error)
+	Update(ctx context.Context, workspaceID string, variableID string, options tfe.VariableUpdateOptions) (*tfe.Variable, error)
+	Delete(ctx context.Context, workspaceID string, variableID string) error
+}
+
 type Variable struct {
 	ID          string           `json:"id"`
 	Key         string           `json:"key"`
@@ -74,7 +85,7 @@ var variableListCmd = &cobra.Command{
 		var tmpWorkspace WorkspaceLite
 
 		if workspaceFilter != "" {
-			workspaces, err := listWorkspaces(client, organization, workspaceFilter)
+			workspaces, err := listWorkspaces(client.Workspaces, organization, workspaceFilter)
 			check(err)
 
 			for _, workspace := range workspaces {
@@ -88,7 +99,7 @@ var variableListCmd = &cobra.Command{
 		if workspaceIds != "" {
 			workspaceIdList := strings.Split(workspaceIds, ",")
 			for _, id := range workspaceIdList {
-				workspaceName, err := getWorkspaceNameByID(client, organization, id)
+				workspaceName, err := getWorkspaceNameByID(client.Workspaces, organization, id)
 				check(err)
 				tmpWorkspace.WorkspaceID = id
 				tmpWorkspace.WorkspaceName = workspaceName
@@ -101,7 +112,7 @@ var variableListCmd = &cobra.Command{
 		var workspaceVarsList []WorkspaceVars
 
 		for _, wrk := range workspaceList {
-			w, err := listVariables(client, wrk)
+			w, err := listVariables(client.Variables, wrk)
 			check(err)
 			workspaceVarsList = append(workspaceVarsList, w)
 		}
@@ -125,12 +136,12 @@ var variableReadCmd = &cobra.Command{
 
 		var tmpWorkspace WorkspaceLite
 
-		workspaceName, err := getWorkspaceNameByID(client, organization, workspaceID)
+		workspaceName, err := getWorkspaceNameByID(client.Workspaces, organization, workspaceID)
 		check(err)
 		tmpWorkspace.WorkspaceID = workspaceID
 		tmpWorkspace.WorkspaceName = workspaceName
 
-		v, err := readVariable(client, tmpWorkspace, variableID)
+		v, err := readVariable(client.Variables, tmpWorkspace, variableID)
 		check(err)
 
 		variableJson, _ := json.MarshalIndent(v, "", "  ")
@@ -158,7 +169,7 @@ var variableCreateCmd = &cobra.Command{
 
 		categoryType := tfe.CategoryType(categoryTypeStr)
 
-		v, err := createVariable(client, workspaceID, &key, &value, &description, &categoryType, &hcl, &sensitive)
+		v, err := createVariable(client.Variables, workspaceID, &key, &value, &description, &categoryType, &hcl, &sensitive)
 		check(err)
 
 		variableJson, _ := json.MarshalIndent(v, "", "  ")
@@ -187,7 +198,7 @@ var variableCreateFromFileCmd = &cobra.Command{
 		check(err)
 
 		for _, newVar := range variables.Variables {
-			v, err := createVariable(client, workspaceID, &newVar.Key, &newVar.Value, &newVar.Description, &newVar.Category, &newVar.HCL, &newVar.Sensitive)
+			v, err := createVariable(client.Variables, workspaceID, &newVar.Key, &newVar.Value, &newVar.Description, &newVar.Category, &newVar.HCL, &newVar.Sensitive)
 			check(err)
 			outputVariablesList = append(outputVariablesList, v)
 		}
@@ -213,7 +224,7 @@ var variableUpdateCmd = &cobra.Command{
 		hcl, _ := cmd.Flags().GetBool("hcl")
 		sensitive, _ := cmd.Flags().GetBool("sensitive")
 
-		v, err := updateVariable(client, workspaceID, variableID, &key, &value, &description, &hcl, &sensitive)
+		v, err := updateVariable(client.Variables, workspaceID, variableID, &key, &value, &description, &hcl, &sensitive)
 		check(err)
 
 		variableJson, _ := json.MarshalIndent(v, "", "  ")
@@ -242,7 +253,7 @@ var variableUpdateFromFileCmd = &cobra.Command{
 		check(err)
 
 		for _, newVar := range variables.Variables {
-			v, err := updateVariable(client, workspaceID, newVar.ID, &newVar.Key, &newVar.Value, &newVar.Description, &newVar.HCL, &newVar.Sensitive)
+			v, err := updateVariable(client.Variables, workspaceID, newVar.ID, &newVar.Key, &newVar.Value, &newVar.Description, &newVar.HCL, &newVar.Sensitive)
 			check(err)
 			outputVariablesList = append(outputVariablesList, v)
 		}
@@ -263,19 +274,19 @@ var variableDeleteCmd = &cobra.Command{
 		workspaceID, _ := cmd.Flags().GetString("workspace-id")
 		variableID, _ := cmd.Flags().GetString("variable-id")
 
-		err = deleteVariable(client, workspaceID, variableID)
+		err = deleteVariable(client.Variables, workspaceID, variableID)
 		check(err)
 
 		var workspaceVarsListJson []byte
 		var workspaceVarsList []WorkspaceVars
 		var tmpWorkspace WorkspaceLite
 
-		workspaceName, err := getWorkspaceNameByID(client, organization, workspaceID)
+		workspaceName, err := getWorkspaceNameByID(client.Workspaces, organization, workspaceID)
 		check(err)
 		tmpWorkspace.WorkspaceID = workspaceID
 		tmpWorkspace.WorkspaceName = workspaceName
 
-		w, err := listVariables(client, tmpWorkspace)
+		w, err := listVariables(client.Variables, tmpWorkspace)
 		check(err)
 
 		workspaceVarsList = append(workspaceVarsList, w)
@@ -332,7 +343,7 @@ func init() {
 
 }
 
-func listVariables(client *tfe.Client, workspace WorkspaceLite) (WorkspaceVars, error) {
+func listVariables(variables VariablesAPI, workspace WorkspaceLite) (WorkspaceVars, error) {
 	result := WorkspaceVars{}
 	currentPage := 1
 
@@ -345,7 +356,7 @@ func listVariables(client *tfe.Client, workspace WorkspaceLite) (WorkspaceVars, 
 			},
 		}
 
-		varList, err := client.Variables.List(context.Background(), workspace.WorkspaceID, options)
+		varList, err := variables.List(context.Background(), workspace.WorkspaceID, options)
 		check(err)
 
 		var tmpVarList []Variable
@@ -378,10 +389,10 @@ func listVariables(client *tfe.Client, workspace WorkspaceLite) (WorkspaceVars, 
 	return result, nil
 }
 
-func readVariable(client *tfe.Client, workspace WorkspaceLite, variableID string) (WorkspaceVar, error) {
+func readVariable(variables VariablesAPI, workspace WorkspaceLite, variableID string) (WorkspaceVar, error) {
 	result := WorkspaceVar{}
 
-	v, err := client.Variables.Read(context.Background(), workspace.WorkspaceID, variableID)
+	v, err := variables.Read(context.Background(), workspace.WorkspaceID, variableID)
 	check(err)
 
 	result.WorkspaceID = workspace.WorkspaceID
@@ -397,7 +408,7 @@ func readVariable(client *tfe.Client, workspace WorkspaceLite, variableID string
 	return result, nil
 }
 
-func createVariable(client *tfe.Client, workspaceID string, key *string, value *string, description *string, category *tfe.CategoryType, hcl *bool, sensitive *bool) (Variable, error) {
+func createVariable(variables VariablesAPI, workspaceID string, key *string, value *string, description *string, category *tfe.CategoryType, hcl *bool, sensitive *bool) (Variable, error) {
 	var result Variable
 
 	options := tfe.VariableCreateOptions{
@@ -409,7 +420,7 @@ func createVariable(client *tfe.Client, workspaceID string, key *string, value *
 		Sensitive:   sensitive,
 	}
 
-	v, err := client.Variables.Create(context.Background(), workspaceID, options)
+	v, err := variables.Create(context.Background(), workspaceID, options)
 	check(err)
 
 	result = Variable{
@@ -425,7 +436,7 @@ func createVariable(client *tfe.Client, workspaceID string, key *string, value *
 	return result, nil
 }
 
-func updateVariable(client *tfe.Client, workspaceID string, variableID string, key *string, value *string, description *string, hcl *bool, sensitive *bool) (Variable, error) {
+func updateVariable(variables VariablesAPI, workspaceID string, variableID string, key *string, value *string, description *string, hcl *bool, sensitive *bool) (Variable, error) {
 	var result Variable
 
 	options := tfe.VariableUpdateOptions{
@@ -436,7 +447,7 @@ func updateVariable(client *tfe.Client, workspaceID string, variableID string, k
 		Sensitive:   sensitive,
 	}
 
-	v, err := client.Variables.Update(context.Background(), workspaceID, variableID, options)
+	v, err := variables.Update(context.Background(), workspaceID, variableID, options)
 	check(err)
 
 	result = Variable{
@@ -452,9 +463,9 @@ func updateVariable(client *tfe.Client, workspaceID string, variableID string, k
 	return result, nil
 }
 
-func deleteVariable(client *tfe.Client, workspaceID string, variableID string) error {
+func deleteVariable(variables VariablesAPI, workspaceID string, variableID string) error {
 
-	err := client.Variables.Delete(context.Background(), workspaceID, variableID)
+	err := variables.Delete(context.Background(), workspaceID, variableID)
 
 	return err
 }

@@ -12,6 +12,13 @@ import (
 	"github.com/spf13/cobra"
 )
 
+//go:generate moq -out policy_set_moq_test.go . PolicySetsAPI
+
+// PolicySetsAPI defines the subset of tfe.PolicySets methods used by this package.
+type PolicySetsAPI interface {
+	List(ctx context.Context, organization string, options *tfe.PolicySetListOptions) (*tfe.PolicySetList, error)
+}
+
 type PolicySet struct {
 	ID                  string   `json:"id"`
 	Name                string   `json:"name"`
@@ -43,7 +50,7 @@ var policySetListCmd = &cobra.Command{
 
 		filter, _ := cmd.Flags().GetString("filter")
 
-		policySets, err := listPolicySets(client, organization, filter)
+		policySets, err := listPolicySets(client.PolicySets, organization, filter)
 		check(err)
 
 		var policySetList []PolicySet
@@ -134,7 +141,7 @@ func init() {
 	policySetListCmd.Flags().String("filter", "", "Search for policy sets by name")
 }
 
-func listPolicySets(client *tfe.Client, organization string, filter string) ([]*tfe.PolicySet, error) {
+func listPolicySets(policySets PolicySetsAPI, organization string, filter string) ([]*tfe.PolicySet, error) {
 	results := []*tfe.PolicySet{}
 	currentPage := 1
 
@@ -148,7 +155,7 @@ func listPolicySets(client *tfe.Client, organization string, filter string) ([]*
 			Search: filter,
 		}
 
-		ps, err := client.PolicySets.List(context.Background(), organization, options)
+		ps, err := policySets.List(context.Background(), organization, options)
 		if err != nil {
 			return nil, err
 		}

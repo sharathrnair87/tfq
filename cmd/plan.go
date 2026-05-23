@@ -13,6 +13,13 @@ import (
 	"github.com/spf13/cobra"
 )
 
+//go:generate moq -out plan_moq_test.go . PlansAPI
+
+type PlansAPI interface {
+	Read(ctx context.Context, planID string) (*tfe.Plan, error)
+	ReadJSONOutput(ctx context.Context, planID string) ([]byte, error)
+}
+
 type Plan struct {
 	ID                        string `json:"id"`
 	HasChanges                bool   `json:"has_changes"`
@@ -54,7 +61,7 @@ var planShowCmd = &cobra.Command{
 		for _, id := range idList {
 
 			log.Debugf("Querying plan with id: %s", id)
-			plan, _ := showPlan(client, id, detailedChanges)
+			plan, _ := showPlan(client.Plans, id, detailedChanges)
 
 			planShowList = append(planShowList, plan)
 		}
@@ -74,9 +81,9 @@ func init() {
 	planShowCmd.Flags().Bool("detailed-changes", false, "Returns a map describing the changed resource attributes")
 }
 
-func showPlan(client *tfe.Client, planID string, detailedChanges bool) (Plan, error) {
+func showPlan(plans PlansAPI, planID string, detailedChanges bool) (Plan, error) {
 	result := Plan{}
-	pl, err := client.Plans.Read(context.Background(), planID)
+	pl, err := plans.Read(context.Background(), planID)
 	check(err)
 
 	result.ID = pl.ID
@@ -88,7 +95,7 @@ func showPlan(client *tfe.Client, planID string, detailedChanges bool) (Plan, er
 	result.HasChanges = pl.HasChanges
 
 	if string(pl.Status) == "finished" && detailedChanges {
-		planJsonOut, err := client.Plans.ReadJSONOutput(context.Background(), planID)
+		planJsonOut, err := plans.ReadJSONOutput(context.Background(), planID)
 		check(err)
 		// This query parses the Output JSON and extracts the resources that are changing
 		// {
