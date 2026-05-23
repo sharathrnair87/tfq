@@ -12,6 +12,24 @@ import (
 	"github.com/spf13/cobra"
 )
 
+//go:generate moq -out registry_provider_moq_test.go . RegistryProvidersAPI RegistryProviderVersionsAPI RegistryProviderPlatformsAPI
+
+// RegistryProvidersAPI defines the subset of tfe.RegistryProviders methods used by this package.
+type RegistryProvidersAPI interface {
+	List(ctx context.Context, organization string, options *tfe.RegistryProviderListOptions) (*tfe.RegistryProviderList, error)
+	Read(ctx context.Context, providerID tfe.RegistryProviderID, options *tfe.RegistryProviderReadOptions) (*tfe.RegistryProvider, error)
+}
+
+// RegistryProviderVersionsAPI defines the subset of tfe.RegistryProviderVersions methods used by this package.
+type RegistryProviderVersionsAPI interface {
+	List(ctx context.Context, providerID tfe.RegistryProviderID, options *tfe.RegistryProviderVersionListOptions) (*tfe.RegistryProviderVersionList, error)
+}
+
+// RegistryProviderPlatformsAPI defines the subset of tfe.RegistryProviderPlatforms methods used by this package.
+type RegistryProviderPlatformsAPI interface {
+	List(ctx context.Context, versionID tfe.RegistryProviderVersionID, options *tfe.RegistryProviderPlatformListOptions) (*tfe.RegistryProviderPlatformList, error)
+}
+
 type RegistryProvider struct {
 	ID           string           `json:"id"`
 	Name         string           `json:"name"`
@@ -49,7 +67,7 @@ var registryProviderListCmd = &cobra.Command{
 
 		filter, _ := cmd.Flags().GetString("filter")
 
-		providerList, err := listPrivateProviders(client, organization, filter)
+		providerList, err := listPrivateProviders(client.RegistryProviders, organization, filter)
 		check(err)
 
 		providerListJson, _ := json.MarshalIndent(providerList, "", "  ")
@@ -69,7 +87,7 @@ var registryProviderGetCmd = &cobra.Command{
 
 		name, _ := cmd.Flags().GetString("name")
 
-		privateProviderDetail, err := getPrivateProviderDetails(client, organization, name)
+		privateProviderDetail, err := getPrivateProviderDetails(client.RegistryProviders, client.RegistryProviderVersions, client.RegistryProviderPlatforms, organization, name)
 		check(err)
 
 		privateProviderDetailJson, _ := json.MarshalIndent(privateProviderDetail, "", "  ")
@@ -89,9 +107,8 @@ func init() {
 	registryProviderGetCmd.Flags().String("name", "", "Name of the private provider in the registry")
 }
 
-func listPrivateProviders(client *tfe.Client, organization string, filter string) ([]RegistryProvider, error) {
+func listPrivateProviders(providers RegistryProvidersAPI, organization string, filter string) ([]RegistryProvider, error) {
 	results := []RegistryProvider{}
-	result := RegistryProvider{}
 	currentPage := 1
 
 	for {
@@ -105,12 +122,13 @@ func listPrivateProviders(client *tfe.Client, organization string, filter string
 			RegistryName: "private",
 		}
 
-		rps, err := client.RegistryProviders.List(context.Background(), organization, options)
+		rps, err := providers.List(context.Background(), organization, options)
 		if err != nil {
 			return nil, err
 		}
 
 		for _, rpItem := range rps.Items {
+			result := RegistryProvider{}
 			result.RegistryName = rpItem.RegistryName
 			result.ID = rpItem.ID
 			result.Name = rpItem.Name
@@ -129,10 +147,10 @@ func listPrivateProviders(client *tfe.Client, organization string, filter string
 	return results, nil
 }
 
-func getPrivateProviderDetails(client *tfe.Client, organization string, name string) (PrivateProviderDetail, error) {
+func getPrivateProviderDetails(providers RegistryProvidersAPI, versions RegistryProviderVersionsAPI, platforms RegistryProviderPlatformsAPI, organization string, name string) (PrivateProviderDetail, error) {
 	var result PrivateProviderDetail
 
-	registryProviderList, err := listPrivateProviders(client, organization, name)
+	registryProviderList, err := listPrivateProviders(providers, organization, name)
 	check(err)
 
 	if len(registryProviderList) > 1 {
@@ -148,12 +166,12 @@ func getPrivateProviderDetails(client *tfe.Client, organization string, name str
 		Name:             registryProvider.Name,
 	}
 
-	pr, err := client.RegistryProviders.Read(context.Background(), registryProviderID, &tfe.RegistryProviderReadOptions{})
+	pr, err := providers.Read(context.Background(), registryProviderID, &tfe.RegistryProviderReadOptions{})
 	check(err)
 
 	//Get latest provider version
 	currentPage := 1
-	prv, err := client.RegistryProviderVersions.List(context.Background(), registryProviderID, &tfe.RegistryProviderVersionListOptions{})
+	prv, err := versions.List(context.Background(), registryProviderID, &tfe.RegistryProviderVersionListOptions{})
 	check(err)
 
 	if len(prv.Items) == 0 {
@@ -164,7 +182,7 @@ func getPrivateProviderDetails(client *tfe.Client, organization string, name str
 	lastPage := prv.TotalPages
 
 	if currentPage != lastPage {
-		prv, err = client.RegistryProviderVersions.List(context.Background(), registryProviderID, &tfe.RegistryProviderVersionListOptions{ListOptions: tfe.ListOptions{PageNumber: lastPage}})
+		prv, err = versions.List(context.Background(), registryProviderID, &tfe.RegistryProviderVersionListOptions{ListOptions: tfe.ListOptions{PageNumber: lastPage}})
 		check(err)
 	}
 
@@ -179,7 +197,7 @@ func getPrivateProviderDetails(client *tfe.Client, organization string, name str
 	}
 
 	//Get provider platform details
-	prpv, err := client.RegistryProviderPlatforms.List(context.Background(), rpv, &tfe.RegistryProviderPlatformListOptions{ListOptions: tfe.ListOptions{PageSize: 100}})
+	prpv, err := platforms.List(context.Background(), rpv, &tfe.RegistryProviderPlatformListOptions{ListOptions: tfe.ListOptions{PageSize: 100}})
 	check(err)
 
 	if len(prpv.Items) == 0 {

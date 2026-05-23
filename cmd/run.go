@@ -14,6 +14,19 @@ import (
 	"github.com/spf13/cobra"
 )
 
+//go:generate moq -out run_moq_test.go . RunsAPI
+
+// RunsAPI defines the subset of tfe.Runs methods used by this package.
+type RunsAPI interface {
+	List(ctx context.Context, workspaceID string, options *tfe.RunListOptions) (*tfe.RunList, error)
+	Create(ctx context.Context, options tfe.RunCreateOptions) (*tfe.Run, error)
+	Apply(ctx context.Context, runID string, options tfe.RunApplyOptions) error
+	Read(ctx context.Context, runID string) (*tfe.Run, error)
+	Cancel(ctx context.Context, runID string, options tfe.RunCancelOptions) error
+	ForceCancel(ctx context.Context, runID string, options tfe.RunForceCancelOptions) error
+	Discard(ctx context.Context, runID string, options tfe.RunDiscardOptions) error
+}
+
 type Run struct {
 	ID            string `json:"id"`
 	WorkspaceID   string `json:"workspace_id"`
@@ -45,12 +58,12 @@ var runListCmd = &cobra.Command{
 		listAll, _ := cmd.Flags().GetBool("list-all")
 
 		// Get workspaceName by ID
-		workspaceName, _ := getWorkspaceNameByID(client, organization, workspaceID)
+		workspaceName, _ := getWorkspaceNameByID(client.Workspaces, organization, workspaceID)
 
 		// List runs in workspace
 		var runs []*tfe.Run
 
-		runs, err = listRuns(client, workspaceID, status, operation, listAll)
+		runs, err = listRuns(client.Runs, workspaceID, status, operation, listAll)
 		check(err)
 
 		var runJson []byte
@@ -126,7 +139,7 @@ var runQueueCmd = &cobra.Command{
 		var workspaces []*tfe.Workspace
 
 		if filter != "" {
-			workspaces, _ = listWorkspaces(client, organization, filter)
+			workspaces, _ = listWorkspaces(client.Workspaces, organization, filter)
 		}
 
 		if ids != "" {
@@ -143,7 +156,7 @@ var runQueueCmd = &cobra.Command{
 			var tmpRun Run
 
 			log.Debugf("Queuing run on %s", workspace.Name)
-			run, err := queueRun(client, organization, workspace)
+			run, err := queueRun(client.Runs, organization, workspace)
 			check(err)
 
 			entry := fmt.Sprintf(`{
@@ -192,14 +205,14 @@ var runApplyCmd = &cobra.Command{
 			var tmpRun Run
 
 			// get workspaceID from run
-			run, _ := getRun(client, id)
+			run, _ := getRun(client.Runs, id)
 			workspaceID := run.Workspace.ID
 
 			// get workspaceName from run
-			workspaceName, _ := getWorkspaceNameByID(client, organization, workspaceID)
+			workspaceName, _ := getWorkspaceNameByID(client.Workspaces, organization, workspaceID)
 
 			log.Debugf("Applying run with id: %s", id)
-			applyRun(client, id)
+			applyRun(client.Runs, id)
 
 			entry := fmt.Sprintf(`{
         "id":"%s",
@@ -247,11 +260,11 @@ var runGetCmd = &cobra.Command{
 			var tmpRun Run
 
 			log.Debugf("Querying run with id: %s", id)
-			run, _ := getRun(client, id)
+			run, _ := getRun(client.Runs, id)
 			workspaceID := run.Workspace.ID
 
 			// get workspaceName from run
-			workspaceName, _ := getWorkspaceNameByID(client, organization, workspaceID)
+			workspaceName, _ := getWorkspaceNameByID(client.Workspaces, organization, workspaceID)
 
 			switch runStatus := run.Status; runStatus {
 			case tfe.RunApplied:
@@ -318,7 +331,7 @@ var runCancelCmd = &cobra.Command{
 		var idList []string
 
 		if filter != "" {
-			workspaces, err := listWorkspaces(client, organization, filter)
+			workspaces, err := listWorkspaces(client.Workspaces, organization, filter)
 			check(err)
 
 			for _, workspace := range workspaces {
@@ -335,17 +348,17 @@ var runCancelCmd = &cobra.Command{
 			var tmpRun Run
 
 			// get workspaceid from run
-			run, _ := getRun(client, id)
+			run, _ := getRun(client.Runs, id)
 			workspaceID := run.Workspace.ID
 
 			// get workspacename from run
-			workspaceName, _ := getWorkspaceNameByID(client, organization, workspaceID)
+			workspaceName, _ := getWorkspaceNameByID(client.Workspaces, organization, workspaceID)
 
 			log.Debugf("Cancelling run with id: %s", id)
 			if force {
-				forceCancelRun(client, id)
+				forceCancelRun(client.Runs, id)
 			} else {
-				cancelRun(client, id)
+				cancelRun(client.Runs, id)
 			}
 
 			entry := fmt.Sprintf(`{
@@ -397,7 +410,7 @@ var runDiscardCmd = &cobra.Command{
 		var idList []string
 
 		if filter != "" {
-			workspaces, err := listWorkspaces(client, organization, filter)
+			workspaces, err := listWorkspaces(client.Workspaces, organization, filter)
 			check(err)
 
 			for _, workspace := range workspaces {
@@ -414,14 +427,14 @@ var runDiscardCmd = &cobra.Command{
 			var tmpRun Run
 
 			// get workspaceid from run
-			run, _ := getRun(client, id)
+			run, _ := getRun(client.Runs, id)
 			workspaceID := run.Workspace.ID
 
 			// get workspacename from run
-			workspaceName, _ := getWorkspaceNameByID(client, organization, workspaceID)
+			workspaceName, _ := getWorkspaceNameByID(client.Workspaces, organization, workspaceID)
 
 			log.Debugf("Discarding run with id: %s", id)
-			discardRun(client, id)
+			discardRun(client.Runs, id)
 
 			entry := fmt.Sprintf(`{
         "id":"%s",
@@ -484,7 +497,7 @@ func init() {
 
 }
 
-func listRuns(client *tfe.Client, workspaceID string, status string, operation string, listAll bool) ([]*tfe.Run, error) {
+func listRuns(runs RunsAPI, workspaceID string, status string, operation string, listAll bool) ([]*tfe.Run, error) {
 	results := []*tfe.Run{}
 	currentPage := 1
 
@@ -499,7 +512,7 @@ func listRuns(client *tfe.Client, workspaceID string, status string, operation s
 			Operation: operation,
 		}
 
-		r, err := client.Runs.List(context.Background(), workspaceID, options)
+		r, err := runs.List(context.Background(), workspaceID, options)
 		if err != nil {
 			return nil, err
 		}
@@ -520,7 +533,7 @@ func listRuns(client *tfe.Client, workspaceID string, status string, operation s
 	return results, nil
 }
 
-func queueRun(client *tfe.Client, organization string, workspace *tfe.Workspace) (*tfe.Run, error) {
+func queueRun(runs RunsAPI, organization string, workspace *tfe.Workspace) (*tfe.Run, error) {
 
 	message := fmt.Sprintf("Queue plan on %s", workspace.Name)
 	options := tfe.RunCreateOptions{
@@ -528,65 +541,65 @@ func queueRun(client *tfe.Client, organization string, workspace *tfe.Workspace)
 		Workspace: workspace,
 	}
 
-	result, err := client.Runs.Create(context.Background(), options)
+	result, err := runs.Create(context.Background(), options)
 	check(err)
 
 	return result, nil
 }
 
-func applyRun(client *tfe.Client, runID string) {
+func applyRun(runs RunsAPI, runID string) {
 
 	comment := fmt.Sprintf("Apply run %s", runID)
 	options := tfe.RunApplyOptions{
 		Comment: &comment,
 	}
 
-	err := client.Runs.Apply(context.Background(), runID, options)
+	err := runs.Apply(context.Background(), runID, options)
 
 	check(err)
 }
 
-func getRun(client *tfe.Client, runID string) (*tfe.Run, error) {
+func getRun(runs RunsAPI, runID string) (*tfe.Run, error) {
 
-	result, err := client.Runs.Read(context.Background(), runID)
+	result, err := runs.Read(context.Background(), runID)
 
 	check(err)
 
 	return result, nil
 }
 
-func cancelRun(client *tfe.Client, runID string) {
+func cancelRun(runs RunsAPI, runID string) {
 	comment := fmt.Sprintf("Cancel run %s", runID)
 
 	options := tfe.RunCancelOptions{
 		Comment: &comment,
 	}
 
-	err := client.Runs.Cancel(context.Background(), runID, options)
+	err := runs.Cancel(context.Background(), runID, options)
 
 	check(err)
 }
 
-func forceCancelRun(client *tfe.Client, runID string) {
+func forceCancelRun(runs RunsAPI, runID string) {
 	comment := fmt.Sprintf("Force-cancel run %s", runID)
 
 	options := tfe.RunForceCancelOptions{
 		Comment: &comment,
 	}
 
-	err := client.Runs.ForceCancel(context.Background(), runID, options)
+	err := runs.ForceCancel(context.Background(), runID, options)
 
 	check(err)
 }
 
-func discardRun(client *tfe.Client, runID string) {
+func discardRun(runs RunsAPI, runID string) {
 	comment := fmt.Sprintf("Discarding run %s", runID)
 
 	options := tfe.RunDiscardOptions{
 		Comment: &comment,
 	}
 
-	err := client.Runs.Discard(context.Background(), runID, options)
+	err := runs.Discard(context.Background(), runID, options)
 
 	check(err)
 }

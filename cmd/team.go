@@ -12,6 +12,19 @@ import (
 	"github.com/spf13/cobra"
 )
 
+//go:generate moq -out team_moq_test.go . TeamsAPI OrganizationMembershipsAPI
+
+// TeamsAPI defines the subset of tfe.Teams methods used by this package.
+type TeamsAPI interface {
+	List(ctx context.Context, organization string, options *tfe.TeamListOptions) (*tfe.TeamList, error)
+	Read(ctx context.Context, teamID string) (*tfe.Team, error)
+}
+
+// OrganizationMembershipsAPI defines the subset of tfe.OrganizationMemberships methods used by this package.
+type OrganizationMembershipsAPI interface {
+	Read(ctx context.Context, orgMemID string) (*tfe.OrganizationMembership, error)
+}
+
 type User struct {
 	ID     string                           `json:"user_id"`
 	Email  string                           `json:"email"`
@@ -45,7 +58,7 @@ var teamListCmd = &cobra.Command{
 		check(err)
 
 		// List teams.
-		teams, err := listTeams(client, organization, []string{})
+		teams, err := listTeams(client.Teams, organization, []string{})
 		check(err)
 
 		var teamJson []byte
@@ -97,8 +110,8 @@ var teamGetCmd = &cobra.Command{
 			for _, id := range idList {
 				var tmpTeam TeamDetail
 
-				team, _ := readTeam(client, id)
-				tmpTeam = genTeamDetail(client, team)
+				team, _ := readTeam(client.Teams, id)
+				tmpTeam = genTeamDetail(client.OrganizationMemberships, team)
 
 				log.Debugf("Adding team %v", tmpTeam)
 				teamList = append(teamList, tmpTeam)
@@ -107,11 +120,11 @@ var teamGetCmd = &cobra.Command{
 
 		if names != "" {
 			namesList := strings.Split(names, ",")
-			teams, err := listTeams(client, organization, namesList)
+			teams, err := listTeams(client.Teams, organization, namesList)
 			check(err)
 
 			for _, team := range teams {
-				tmpTeam := genTeamDetail(client, team)
+				tmpTeam := genTeamDetail(client.OrganizationMemberships, team)
 
 				log.Debugf("Adding team %v", tmpTeam)
 				teamList = append(teamList, tmpTeam)
@@ -139,7 +152,7 @@ func init() {
 	// End mutually-exclusive flags
 }
 
-func listTeams(client *tfe.Client, organization string, filters []string) ([]*tfe.Team, error) {
+func listTeams(teams TeamsAPI, organization string, filters []string) ([]*tfe.Team, error) {
 	results := []*tfe.Team{}
 	currentPage := 1
 
@@ -160,7 +173,7 @@ func listTeams(client *tfe.Client, organization string, filters []string) ([]*tf
 
 		log.Debugf("options: %v", options)
 
-		t, err := client.Teams.List(context.Background(), organization, options)
+		t, err := teams.List(context.Background(), organization, options)
 		check(err)
 
 		log.Debugf("%v", t.TotalPages)
@@ -180,10 +193,10 @@ func listTeams(client *tfe.Client, organization string, filters []string) ([]*tf
 	return results, nil
 }
 
-func getOrgMember(client *tfe.Client, orgMemID string) (User, error) {
+func getOrgMember(orgMem OrganizationMembershipsAPI, orgMemID string) (User, error) {
 	result := User{}
 
-	o, err := client.OrganizationMemberships.Read(context.Background(), orgMemID)
+	o, err := orgMem.Read(context.Background(), orgMemID)
 	check(err)
 
 	result.ID = o.User.ID
@@ -193,24 +206,24 @@ func getOrgMember(client *tfe.Client, orgMemID string) (User, error) {
 	return result, nil
 }
 
-func readTeam(client *tfe.Client, teamID string) (*tfe.Team, error) {
-	result, err := client.Teams.Read(context.Background(), teamID)
+func readTeam(teams TeamsAPI, teamID string) (*tfe.Team, error) {
+	result, err := teams.Read(context.Background(), teamID)
 	check(err)
 
 	return result, nil
 }
 
-func genTeamDetail(client *tfe.Client, team *tfe.Team) TeamDetail {
+func genTeamDetail(orgMem OrganizationMembershipsAPI, team *tfe.Team) TeamDetail {
 	result := TeamDetail{}
 
 	result.Team.ID = team.ID
 	result.Team.Name = team.Name
 	result.Team.UserCount = team.UserCount
 
-	for _, orgMem := range team.OrganizationMemberships {
+	for _, orgMemItem := range team.OrganizationMemberships {
 		var tmpUser User
-		log.Debugf("Org mem: %v", &orgMem)
-		tmpUser, _ = getOrgMember(client, orgMem.ID)
+		log.Debugf("Org mem: %v", &orgMemItem)
+		tmpUser, _ = getOrgMember(orgMem, orgMemItem.ID)
 
 		log.Debugf("Adding User %v", tmpUser)
 		result.Users = append(result.Users, tmpUser)

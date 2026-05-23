@@ -12,6 +12,13 @@ import (
 	"github.com/spf13/cobra"
 )
 
+//go:generate moq -out tags_moq_test.go . OrganizationTagsAPI
+
+// OrganizationTagsAPI defines the subset of tfe.OrganizationTags methods used by this package.
+type OrganizationTagsAPI interface {
+	List(ctx context.Context, organization string, options *tfe.OrganizationTagsListOptions) (*tfe.OrganizationTagsList, error)
+}
+
 type Tag struct {
 	Name          string `json:"name"`
 	ID            string `json:"id"`
@@ -35,7 +42,7 @@ var tagListCmd = &cobra.Command{
 		filter, _ := cmd.Flags().GetString("filter")
 		search, _ := cmd.Flags().GetString("search")
 
-		tags, err := listTags(client, organization, filter, search)
+		tags, err := listTags(client.OrganizationTags, organization, filter, search)
 		check(err)
 
 		var tagList []Tag
@@ -72,7 +79,7 @@ func init() {
 	tagListCmd.Flags().String("search", "", "A search query string. Organization tags are searchable by name likeness, takes precedence over --filter")
 }
 
-func listTags(client *tfe.Client, organization string, filter string, search string) ([]*tfe.OrganizationTag, error) {
+func listTags(tags OrganizationTagsAPI, organization string, filter string, search string) ([]*tfe.OrganizationTag, error) {
 	log.Debugf("Filter: %s", filter)
 	results := []*tfe.OrganizationTag{}
 	currentPage := 1
@@ -88,7 +95,7 @@ func listTags(client *tfe.Client, organization string, filter string, search str
 			Query:  search,
 		}
 
-		p, err := client.OrganizationTags.List(context.Background(), organization, options)
+		p, err := tags.List(context.Background(), organization, options)
 		if err != nil {
 			return nil, err
 		}

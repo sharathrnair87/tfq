@@ -11,6 +11,13 @@ import (
 	"github.com/spf13/cobra"
 )
 
+//go:generate moq -out agent_pool_moq_test.go . AgentPoolsAPI
+
+// AgentPoolsAPI defines the subset of tfe.AgentPools methods used by this package.
+type AgentPoolsAPI interface {
+	List(ctx context.Context, organization string, options *tfe.AgentPoolListOptions) (*tfe.AgentPoolList, error)
+}
+
 type AgentPool struct {
 	ID                 string   `json:"id"`
 	Name               string   `json:"name"`
@@ -37,7 +44,7 @@ var agentPoolListCmd = &cobra.Command{
 
 		query, _ := cmd.Flags().GetString("query")
 
-		agentPools, err := listAgentPools(client, organization)
+		agentPools, err := listAgentPools(client.AgentPools, organization)
 		check(err)
 
 		agentPoolsJson, err := json.MarshalIndent(agentPools, "", "  ")
@@ -58,9 +65,8 @@ func init() {
 	agentPoolCmd.AddCommand(agentPoolListCmd)
 }
 
-func listAgentPools(client *tfe.Client, organization string) ([]AgentPool, error) {
+func listAgentPools(agents AgentPoolsAPI, organization string) ([]AgentPool, error) {
 	results := []AgentPool{}
-	result := AgentPool{}
 	currentPage := 1
 
 	for {
@@ -72,12 +78,13 @@ func listAgentPools(client *tfe.Client, organization string) ([]AgentPool, error
 			},
 		}
 
-		aps, err := client.AgentPools.List(context.Background(), organization, options)
+		aps, err := agents.List(context.Background(), organization, options)
 		if err != nil {
 			return nil, err
 		}
 
 		for _, apsItem := range aps.Items {
+			result := AgentPool{}
 			result.ID = apsItem.ID
 			result.Name = apsItem.Name
 			result.AgentCount = apsItem.AgentCount
@@ -86,18 +93,12 @@ func listAgentPools(client *tfe.Client, organization string) ([]AgentPool, error
 				result.Organization = apsItem.Organization.Name
 			}
 
-			if len(apsItem.Workspaces) > 0 {
-				for _, wk := range apsItem.Workspaces {
-					check(err)
-					result.Workspaces = append(result.Workspaces, wk.ID)
-				}
+			for _, wk := range apsItem.Workspaces {
+				result.Workspaces = append(result.Workspaces, wk.ID)
 			}
 
-			if len(apsItem.AllowedWorkspaces) > 0 {
-				for _, wk := range apsItem.AllowedWorkspaces {
-					check(err)
-					result.AllowedWorkspaces = append(result.AllowedWorkspaces, wk.ID)
-				}
+			for _, wk := range apsItem.AllowedWorkspaces {
+				result.AllowedWorkspaces = append(result.AllowedWorkspaces, wk.ID)
 			}
 
 			results = append(results, result)

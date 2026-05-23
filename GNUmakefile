@@ -29,3 +29,11 @@ test:
 testworkspaces:
 	@echo "==> Testing Workspace <=="
 	cd cmd/ && go test -v -tags=workspace
+
+unittest:
+	@echo "==> Running Unit Tests <=="
+	cd cmd/ && go test -v
+
+generatemocks:
+	@echo "==> Generating Mocks <=="
+	cd cmd/ && go generate -v ./...
