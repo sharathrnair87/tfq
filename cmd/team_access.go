@@ -48,10 +48,10 @@ var teamAccessListCmd = &cobra.Command{
 		organization, client, err := resources.Setup(cmd)
 		check(err)
 
-		teamIDs, _ := cmd.Flags().GetString("team-ids")
+		teamIDs, _ := cmd.Flags().GetString("team-id")
 
 		if teamIDs == "" {
-			log.Fatal("team-ids is required")
+			log.Fatal("team-id is required")
 		}
 		idList := strings.Split(teamIDs, ",")
 
@@ -107,7 +107,7 @@ var teamAccessListCmd = &cobra.Command{
 func init() {
 	rootCmd.AddCommand(teamAccessCmd)
 	teamAccessCmd.AddCommand(teamAccessListCmd)
-	teamAccessListCmd.Flags().String("team-ids", "", "Comma separated list of team IDs to list workspace access for")
+	teamAccessListCmd.Flags().String("team-id", "", "Comma separated list of team IDs to list workspace access for")
 }
 
 func getWorkspaceTeamAccess(teamAccess TeamAccessAPI, workspaces WorkspacesAPI, workspaceID string, teamID string, organization string) (*TeamAccess, error) {
