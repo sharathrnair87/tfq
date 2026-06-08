@@ -7,8 +7,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/sharathrnair87/tfq/resources"
 	tfe "github.com/hashicorp/go-tfe"
+	"github.com/sharathrnair87/tfq/resources"
 
 	log "github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
@@ -31,7 +31,7 @@ type TeamAccessAttributes struct {
 }
 
 type TeamAccessAPI interface {
-  List(ctx context.Context, options *tfe.TeamAccessListOptions) (*tfe.TeamAccessList, error)
+	List(ctx context.Context, options *tfe.TeamAccessListOptions) (*tfe.TeamAccessList, error)
 }
 
 var teamAccessCmd = &cobra.Command{
@@ -49,19 +49,41 @@ var teamAccessListCmd = &cobra.Command{
 		check(err)
 
 		teamIDs, _ := cmd.Flags().GetString("team-ids")
+		workspaceIDs, _ := cmd.Flags().GetString("workspace-ids")
 
 		if teamIDs == "" {
-			log.Fatal("team-ids is required")
+			log.Fatal("team-id is required")
 		}
-		idList := strings.Split(teamIDs, ",")
 
-		// List all workspaces to find where these teams have access
-		workspaces, err := listWorkspaces(client.Workspaces, organization, "")
-		check(err)
+		teamIDList := strings.Split(teamIDs, ",")
 
-		var teamAccessResults []TeamAccess
+		var workspaces []*tfe.Workspace
+
+		if workspaceIDs == "all" {
+			workspaces, err = listWorkspaces(client.Workspaces, organization, "")
+			check(err)
+		} else {
+			workspaceIDList := strings.Split(workspaceIDs, ",")
+			for _, workspace := range workspaceIDList {
+				workspaces = append(workspaces, &tfe.Workspace{
+					ID: workspace,
+				})
+			}
+		}
+
+		teamAccessResults := make([]map[string][]TeamAccess, 0)
+		for _, teamID := range teamIDList {
+			teamAccessResults = append(teamAccessResults, map[string][]TeamAccess{
+				teamID: {},
+			})
+		}
 		wg := sync.WaitGroup{}
-		ch := make(chan *TeamAccess, len(workspaces)*len(idList))
+		type workerResult struct {
+			workspaceID string
+			accesses    map[string]*TeamAccess
+			err         error
+		}
+		ch := make(chan workerResult, len(workspaces))
 
 		// Ratelimit
 		chunkSize := 3
@@ -78,16 +100,11 @@ var teamAccessListCmd = &cobra.Command{
 				wg.Add(1)
 				go func(workspaceID string) {
 					defer wg.Done()
-					for _, teamID := range idList {
-						access, err := getWorkspaceTeamAccess(client.TeamAccess, client.Workspaces, workspaceID, teamID, organization)
-						if err != nil {
-							log.Debugf("Error getting access for workspace %s, team %s: %v", workspaceID, teamID, err)
-							continue
-						}
-						if access != nil {
-							ch <- access
-						}
+					accesses, err := getWorkspaceTeamAccess(client.TeamAccess, client.Workspaces, workspaceID, teamIDList, organization)
+					if err != nil {
+						log.Debugf("Error getting access for workspace %s: %v", workspaceID, err)
 					}
+					ch <- workerResult{workspaceID: workspaceID, accesses: accesses, err: err}
 				}(ws.ID)
 			}
 			wg.Wait()
@@ -95,8 +112,15 @@ var teamAccessListCmd = &cobra.Command{
 		}
 		close(ch)
 
-		for access := range ch {
-			teamAccessResults = append(teamAccessResults, *access)
+		for res := range ch {
+			if res.err != nil || res.accesses == nil {
+				continue
+			}
+			for teamID, access := range res.accesses {
+				if access != nil {
+					teamAccessResults[0][teamID] = append(teamAccessResults[0][teamID], *access)
+				}
+			}
 		}
 
 		teamAccessJson, _ := json.MarshalIndent(teamAccessResults, "", "  ")
@@ -107,10 +131,16 @@ var teamAccessListCmd = &cobra.Command{
 func init() {
 	rootCmd.AddCommand(teamAccessCmd)
 	teamAccessCmd.AddCommand(teamAccessListCmd)
-	teamAccessListCmd.Flags().String("team-ids", "", "Comma separated list of team IDs to list workspace access for")
+	teamAccessListCmd.Flags().String("team-ids", "", "Comma separated list of IDs of the teams whose access is to be determined")
+	teamAccessListCmd.Flags().String("workspace-ids", "all", "Comma separated list of workspace IDs")
 }
 
-func getWorkspaceTeamAccess(teamAccess TeamAccessAPI, workspaces WorkspacesAPI, workspaceID string, teamID string, organization string) (*TeamAccess, error) {
+func getWorkspaceTeamAccess(teamAccess TeamAccessAPI, workspaces WorkspacesAPI, workspaceID string, teamIDs []string, organization string) (map[string]*TeamAccess, error) {
+	results := make(map[string]*TeamAccess)
+	targetTeams := make(map[string]bool)
+	for _, id := range teamIDs {
+		targetTeams[id] = true
+	}
 	currentPage := 1
 	for {
 		options := &tfe.TeamAccessListOptions{
@@ -121,8 +151,7 @@ func getWorkspaceTeamAccess(teamAccess TeamAccessAPI, workspaces WorkspacesAPI, 
 			WorkspaceID: workspaceID,
 		}
 
-		//ta, err := client.TeamAccess.List(context.Background(), options)
-    ta, err := teamAccess.List(context.Background(), options)
+		ta, err := teamAccess.List(context.Background(), options)
 		if err != nil {
 			return nil, err
 		}
@@ -131,8 +160,8 @@ func getWorkspaceTeamAccess(teamAccess TeamAccessAPI, workspaces WorkspacesAPI, 
 		check(err)
 
 		for _, item := range ta.Items {
-			if item.Team != nil && item.Team.ID == teamID {
-				return &TeamAccess{
+			if item.Team != nil && targetTeams[item.Team.ID] {
+				results[item.Team.ID] = &TeamAccess{
 					WorkspaceID:   workspaceID,
 					WorkspaceName: workspaceName,
 					Attributes: TeamAccessAttributes{
@@ -144,7 +173,7 @@ func getWorkspaceTeamAccess(teamAccess TeamAccessAPI, workspaces WorkspacesAPI, 
 						WorkspaceLocking: item.WorkspaceLocking,
 						RunTasks:         item.RunTasks,
 					},
-				}, nil
+				}
 			}
 		}
 
@@ -154,5 +183,5 @@ func getWorkspaceTeamAccess(teamAccess TeamAccessAPI, workspaces WorkspacesAPI, 
 		currentPage++
 	}
 
-	return nil, nil
+	return results, nil
 }

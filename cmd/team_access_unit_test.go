@@ -45,18 +45,20 @@ func TestGetWorkspaceTeamAccess_Found(t *testing.T) {
 		},
 	}
 
-	result, err := getWorkspaceTeamAccess(mockTeamAccess, mockWorkspaces, "ws-123", "team-abc", "my-org")
+	result, err := getWorkspaceTeamAccess(mockTeamAccess, mockWorkspaces, "ws-123", []string{"team-abc"}, "my-org")
 	assert.NoError(t, err)
 	assert.NotNil(t, result)
-	assert.Equal(t, "ws-123", result.WorkspaceID)
-	assert.Equal(t, "my-workspace", result.WorkspaceName)
-	assert.Equal(t, "custom", result.Attributes.Access)
-	assert.Equal(t, "apply", result.Attributes.Runs)
-	assert.Equal(t, "write", result.Attributes.Variables)
-	assert.Equal(t, "read", result.Attributes.StateVersions)
-	assert.Equal(t, "none", result.Attributes.SentinelMocks)
-	assert.True(t, result.Attributes.WorkspaceLocking)
-	assert.False(t, result.Attributes.RunTasks)
+	teamAccess, ok := result["team-abc"]
+	assert.True(t, ok)
+	assert.Equal(t, "ws-123", teamAccess.WorkspaceID)
+	assert.Equal(t, "my-workspace", teamAccess.WorkspaceName)
+	assert.Equal(t, "custom", teamAccess.Attributes.Access)
+	assert.Equal(t, "apply", teamAccess.Attributes.Runs)
+	assert.Equal(t, "write", teamAccess.Attributes.Variables)
+	assert.Equal(t, "read", teamAccess.Attributes.StateVersions)
+	assert.Equal(t, "none", teamAccess.Attributes.SentinelMocks)
+	assert.True(t, teamAccess.Attributes.WorkspaceLocking)
+	assert.False(t, teamAccess.Attributes.RunTasks)
 }
 
 func TestGetWorkspaceTeamAccess_NotFound(t *testing.T) {
@@ -87,9 +89,10 @@ func TestGetWorkspaceTeamAccess_NotFound(t *testing.T) {
 		},
 	}
 
-	result, err := getWorkspaceTeamAccess(mockTeamAccess, mockWorkspaces, "ws-123", "team-abc", "my-org")
+	result, err := getWorkspaceTeamAccess(mockTeamAccess, mockWorkspaces, "ws-123", []string{"team-abc"}, "my-org")
 	assert.NoError(t, err)
-	assert.Nil(t, result)
+	assert.NotNil(t, result)
+	assert.Nil(t, result["team-abc"])
 }
 
 func TestGetWorkspaceTeamAccess_Pagination(t *testing.T) {
@@ -136,11 +139,13 @@ func TestGetWorkspaceTeamAccess_Pagination(t *testing.T) {
 		},
 	}
 
-	result, err := getWorkspaceTeamAccess(mockTeamAccess, mockWorkspaces, "ws-123", "team-abc", "my-org")
+	result, err := getWorkspaceTeamAccess(mockTeamAccess, mockWorkspaces, "ws-123", []string{"team-abc"}, "my-org")
 	assert.NoError(t, err)
 	assert.NotNil(t, result)
-	assert.Equal(t, "ws-123", result.WorkspaceID)
-	assert.Equal(t, "read", result.Attributes.Access)
+	teamAccess, ok := result["team-abc"]
+	assert.True(t, ok)
+	assert.Equal(t, "ws-123", teamAccess.WorkspaceID)
+	assert.Equal(t, "read", teamAccess.Attributes.Access)
 }
 
 func TestGetWorkspaceTeamAccess_APIError(t *testing.T) {
@@ -152,7 +157,7 @@ func TestGetWorkspaceTeamAccess_APIError(t *testing.T) {
 
 	mockWorkspaces := &WorkspacesAPIMock{}
 
-	result, err := getWorkspaceTeamAccess(mockTeamAccess, mockWorkspaces, "ws-123", "team-abc", "my-org")
+	result, err := getWorkspaceTeamAccess(mockTeamAccess, mockWorkspaces, "ws-123", []string{"team-abc"}, "my-org")
 	assert.Error(t, err)
 	assert.Nil(t, result)
 }

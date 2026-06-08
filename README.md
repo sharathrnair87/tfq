@@ -32,6 +32,7 @@ Available Commands:
   run               Manage TFE runs
   tag               Query TFE tags
   team              Manage TFE teams
+  team-access       Query TFE workspace team access
   variable          Manage TFE workspace variables
   workspace         Manage TFE workspaces
 
@@ -579,6 +580,74 @@ Query Agent Pools in TFE/TFC.
 
 ```bash
 $ tfq agent-pool list
+```
+
+</details>
+
+### Team Access
+
+<details>
+<summary>Team Access Operations</summary>
+
+Query TFE workspace team access.
+
+#### List Team Accesses
+
+Determines the workspace accesses for one or more teams. The `--team-ids` flag accepts a comma-separated string of multiple team IDs. The output shows the access *per* team (keyed by team ID) for the specified workspaces (either all or comma-separated workspace IDs).
+
+```bash
+$ tfq team-access list --team-ids "team-abc,team-xyz" --workspace-ids "ws-123,ws-456"
+```
+
+Output:
+```json
+[
+    {
+        "team-abc": [
+            {
+                "workspace_id": "ws-123",
+                "workspace_name": "my-workspace-1",
+                "attributes": {
+                    "access": "read",
+                    "runs": "read",
+                    "variables": "read",
+                    "state-versions": "read",
+                    "sentinel-mocks": "none",
+                    "workspace-locking": false,
+                    "run-tasks": false
+                }
+            }
+        ],
+        "team-xyz": [
+            {
+                "workspace_id": "ws-123",
+                "workspace_name": "my-workspace-1",
+                "attributes": {
+                    "access": "custom",
+                    "runs": "apply",
+                    "variables": "write",
+                    "state-versions": "read",
+                    "sentinel-mocks": "none",
+                    "workspace-locking": true,
+                    "run-tasks": false
+                }
+            },
+            {
+                "workspace_id": "ws-456",
+                "workspace_name": "my-workspace-2",
+                "attributes": {
+                    "access": "admin",
+                    "runs": "apply",
+                    "variables": "write",
+                    "state-versions": "write",
+                    "sentinel-mocks": "read",
+                    "workspace-locking": true,
+                    "run-tasks": true
+                }
+            }
+        ]
+    }
+]
 ```
 
 </details>
