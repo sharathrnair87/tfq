@@ -4,8 +4,8 @@ import (
 	"context"
 	"encoding/json"
 
-	"github.com/sharathrnair87/tfq/resources"
 	"github.com/hashicorp/go-tfe"
+	"github.com/sharathrnair87/tfq/resources"
 
 	log "github.com/sirupsen/logrus"
 

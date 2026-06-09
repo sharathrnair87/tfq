@@ -28,6 +28,7 @@ Available Commands:
   run               Manage TFE runs
   tag               Query TFE tags
   team              Manage TFE teams
+  team-access       Query TFE workspace team access
   variable          Manage TFE workspace variables
   workspace         Manage TFE workspaces
 

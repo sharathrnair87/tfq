@@ -7,8 +7,8 @@ import (
 	"os"
 	"strings"
 
-	"github.com/sharathrnair87/tfq/resources"
 	tfe "github.com/hashicorp/go-tfe"
+	"github.com/sharathrnair87/tfq/resources"
 
 	log "github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
